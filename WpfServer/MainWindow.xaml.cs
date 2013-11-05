@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -29,8 +30,8 @@ namespace WpfServer
         private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
         private const string TargetName = "memoryex";
 
-        CancellationTokenSource cts = new CancellationTokenSource();
-        TcpListener listener;
+	    private CancellationTokenSource _cts;
+		private static TcpListener _listener;
 
         public MainWindow()
         {
@@ -52,7 +53,6 @@ namespace WpfServer
             Logger.Info("Window is loaded");
             Logger.Info("These messages are logged in ..\\..\\Logs\\NLogSamples.log as well.");
             Logger.Info("Press start button to start server");
-            //Logger.Info("I will log when I am resized");
         }
 
         public ObservableCollection<string> IncomingMessages
@@ -63,68 +63,146 @@ namespace WpfServer
 
         private void startServer_Click(object sender, RoutedEventArgs e)
         {
+	        IPAddress ip;
+	        int port;
+
             if (anyIP.IsChecked == true)
             {
-                listener = new TcpListener(IPAddress.Any, Int32.Parse(serverPort.Text));
-                Logger.Info("Ip Address : " + IPAddress.Any + " Port : " + serverPort.Text);
+	            ip = IPAddress.Any;
             }
             else
             {
-                listener = new TcpListener(IPAddress.Parse(serverIP.Text), Int32.Parse(serverPort.Text));
-                Logger.Info("Ip Address : " + serverIP.Text + " Port : " + serverPort.Text);
+				//TODO try/catch Parse or TryParse
+				ip = IPAddress.Parse(serverIP.Text);
             }
-            try
-            {
-                listener.Start();
-                Logger.Info("Listening");
-                HandleConnectionAsync(listener, cts.Token);
-            }
-            catch (Exception exception)
-            {
-                Logger.Info(exception);
-            }
-            //finally
-            //{
-                //cts.Cancel();
-                //listener.Stop();
-                //Logger.Info("Stop listening");
-            //}
 
-            //cts.Cancel();
+	        port = Int32.Parse(serverPort.Text);
+			Logger.Info("Ip Address : " + ip.ToString() + " Port : " + port);
+
+			StartServer(ip, port);
         }
 
-        async Task HandleConnectionAsync(TcpListener listener, CancellationToken ct)
+	    private void StartServer(IPAddress ip, int port)
+	    {
+		    _cts = new CancellationTokenSource();
+		    _listener = new TcpListener(ip, port);
+			try
+			{
+				_listener.Start();
+				Logger.Info("Listening");
+				HandleConnectionAsync(_listener, _cts.Token);
+
+			}
+			catch (Exception e)
+			{
+				Logger.Info(e.Message);
+			}
+		}
+
+        private async Task HandleConnectionAsync(TcpListener tcpListener, CancellationToken ct)
         {
             while (!ct.IsCancellationRequested)
             {
-                Logger.Info("Accepting client");
-                //TcpClient client = await listener.AcceptTcpClientAsync();
-                TcpClient client = await listener.AcceptTcpClientAsync();
-                Logger.Info("Client accepted");
-                EchoAsync(client, ct);
-            }
+				//TODO catch Socket exception
+	            using (var client = await tcpListener.AcceptTcpClientAsync())
+	            {
+					//TODO provide connected client details
+					Logger.Info("Client connected");
 
-        }
+					using (var networkStream = client.GetStream())
+					{
+						if (!ct.IsCancellationRequested)
+						{
+							var myCompleteMessage = new StringBuilder();
+							// Check to see if this NetworkStream is readable. 
+							if (networkStream.CanRead)
+							{
+								byte[] readBuffer = new byte[1500];
+								int numberOfBytesRead = 0;
 
-        async Task EchoAsync(TcpClient client, CancellationToken ct)
-        {
-            var buf = new byte[4096];
-            var stream = client.GetStream();
-            while (!ct.IsCancellationRequested)
-            {
-                var amountRead = await stream.ReadAsync(buf, 0, buf.Length, ct);
-                Logger.Info("Receive " + stream.ToString());
-                if (amountRead == 0) break; //end of stream.
-                await stream.WriteAsync(buf, 0, amountRead, ct);
-                Logger.Info("Echo to client");
+								// Incoming message may be larger than the buffer size. 
+								do
+								{
+									numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length);
+
+									// Using string as dynamic byte buffer
+									myCompleteMessage.AppendFormat("{0}", Encoding.ASCII.GetString(readBuffer, 0, numberOfBytesRead));
+								}
+								while (networkStream.DataAvailable);
+
+								Logger.Info("Received : " + myCompleteMessage);
+							}
+							else
+							{
+								Logger.Info("Cannot read from this NetworkStream.");
+							}
+
+							if (networkStream.CanWrite)
+							{
+								var writeBuffer = Encoding.ASCII.GetBytes(myCompleteMessage.ToString());
+								await networkStream.WriteAsync(writeBuffer, 0, writeBuffer.Length);
+								Logger.Info("Sent : " + Encoding.ASCII.GetString(writeBuffer));
+							}
+							else
+							{
+								Logger.Info("Cannot write from this NetworkStream.");
+							}
+						}
+					}
+				}
+				//Communicate(client, ct);
             }
         }
+		private async Task Communicate(TcpClient client, CancellationToken ct)
+		{
+			using (var networkStream = client.GetStream())
+			{
+				if (!ct.IsCancellationRequested)
+				{
+					var myCompleteMessage = new StringBuilder();
+					// Check to see if this NetworkStream is readable. 
+					if (networkStream.CanRead)
+					{
+						byte[] readBuffer = new byte[1500];
+						int numberOfBytesRead = 0;
+
+						// Incoming message may be larger than the buffer size. 
+						do
+						{
+							numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length);
+
+							// Using string as dynamic byte buffer
+							myCompleteMessage.AppendFormat("{0}", Encoding.ASCII.GetString(readBuffer, 0, numberOfBytesRead));
+						}
+						while (networkStream.DataAvailable);
+
+						Logger.Info("Received : " + myCompleteMessage);
+					}
+					else
+					{
+						Logger.Info("Cannot read from this NetworkStream.");
+					}
+
+					if (networkStream.CanWrite)
+					{
+						var writeBuffer = Encoding.ASCII.GetBytes(myCompleteMessage.ToString());
+						await networkStream.WriteAsync(writeBuffer, 0, writeBuffer.Length);
+						Logger.Info("Sent : " + Encoding.ASCII.GetString(writeBuffer));						
+					}
+					else
+					{
+						Logger.Info("Cannot write from this NetworkStream.");
+					}
+				}
+			}
+		}
 
         private void stopServer_Click(object sender, RoutedEventArgs e)
         {
-            cts.Cancel();
-            listener.Stop();
-            Logger.Info("Stop listening");
+            _cts.Cancel();
+	        _cts.Dispose();
+            _listener.Stop();
+            Logger.Info("Stopped listening");
         }
 
         private void anyIP_Checked(object sender, RoutedEventArgs e)

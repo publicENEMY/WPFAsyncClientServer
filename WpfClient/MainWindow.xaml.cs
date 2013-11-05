@@ -22,96 +22,109 @@ using NLog;
 
 namespace WpfClient
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
-    public partial class MainWindow : Window
-    {
-        private ObservableCollection<string> _messages = new ObservableCollection<string>();
-        private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
-        private const string TargetName = "memoryex";
+	/// <summary>
+	/// Interaction logic for MainWindow.xaml
+	/// </summary>
+	public partial class MainWindow : Window
+	{
+		private ObservableCollection<string> _messages = new ObservableCollection<string>();
+		private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+		private const string TargetName = "memoryex";
 
+		public MainWindow()
+		{
+			InitializeComponent();
+			Loaded += MainWindowLoaded;
 
+			var target =
+				LogManager.Configuration.AllTargets
+				.Where(x => x.Name == TargetName)
+				.Single() as MemoryTargetEx;
 
-        public MainWindow()
-        {
-            InitializeComponent();
-            Loaded += MainWindowLoaded;
-            //SizeChanged +=  MainWindowSizeChanged;
+			if (target != null)
+				target.Messages.Subscribe(msg => _messages.Add(msg));
+		}
 
-            var target =
-                LogManager.Configuration.AllTargets
-                .Where(x => x.Name == TargetName)
-                .Single() as MemoryTargetEx;
+		void MainWindowLoaded(object sender, RoutedEventArgs e)
+		{
+			IncomingMessages = _messages;
+			Logger.Info("Window is loaded");
+			Logger.Info("These messages are logged in ..\\..\\Logs\\NLogSamples.log as well.");
+		}
 
-            if (target != null)
-                target.Messages.Subscribe(msg => _messages.Add(msg));
-        }
+		public ObservableCollection<string> IncomingMessages
+		{
+			get { return _messages; }
+			private set { _messages = value; }
+		}
 
-        void MainWindowLoaded(object sender, RoutedEventArgs e)
-        {
-            IncomingMessages = _messages;
-            Logger.Info("Window is loaded");
-            Logger.Info("These messages are logged in ..\\..\\Logs\\NLogSamples.log as well.");
-            //Logger.Info("I will log when I am resized");
-        }
+		private void connect_Click(object sender, System.Windows.RoutedEventArgs e)
+		{
+			IPAddress ipAddress;
+			int port;
 
-        public ObservableCollection<string> IncomingMessages
-        {
-            get { return _messages; }
-            private set { _messages = value; }
-        }
+			//TODO Check if ip address is valid
+			ipAddress = IPAddress.Parse(serverIP.Text);
+			//TODO port range is 0-65000
+			port = int.Parse(serverPort.Text);
 
-        private void connect_Click(object sender, System.Windows.RoutedEventArgs e)
-        {
-            IPAddress ipAddress;
-            int port;
+			StartClient(ipAddress, port);
+		}
 
-            //TODO Check if ip address is valid
-            ipAddress = IPAddress.Parse(serverIP.Text);
-            //TODO port range is 0-65000
-            port = int.Parse(serverPort.Text);
+		private static async Task StartClient(IPAddress serverIpAddress, int port)
+		{
+			using (var client = new TcpClient())
+			{
+				try
+				{
+					await client.ConnectAsync(serverIpAddress, port);
+					Logger.Info("Connected to server");
+					using (var networkStream = client.GetStream())
+					{
+						string message = DateTime.Now.ToLongDateString();
 
-            StartClient(ipAddress, port);
-        }
+						if (networkStream.CanWrite)
+						{
+							var writeBuffer = Encoding.ASCII.GetBytes(message);
+							await networkStream.WriteAsync(writeBuffer, 0, writeBuffer.Length);
+							Logger.Info("Sent : " + Encoding.ASCII.GetString(writeBuffer));
+						}
+						else
+						{
+							Logger.Info("Cannot write from this NetworkStream.");
+						}
 
-        private static async void StartClient(IPAddress serverIpAddress, int port)
-        {
-            var client = new TcpClient();
-            //can i try/catch to catch await exception?
-            try
-            {
-                await client.ConnectAsync(serverIpAddress, port);
-            }
-            catch (Exception e)
-            {
-                Logger.Info(e);                
-            }
-            Logger.Info("Connected to server");
-            using (var networkStream = client.GetStream())
-            using (var writer = new StreamWriter(networkStream))
-            using (var reader = new StreamReader(networkStream))
-            {
-                writer.AutoFlush = true;
-                for (int i = 0; i < 10; i++)
-                {
-                    Logger.Info("Writing to server");
-                    await writer.WriteLineAsync(DateTime.Now.ToLongDateString());
-                    Logger.Info("Reading from server");
-                    var dataFromServer = await reader.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(dataFromServer))
-                    {
-                        Logger.Info(dataFromServer);
-                    }
+						var myCompleteMessage = new StringBuilder();
+						// Check to see if this NetworkStream is readable. 
+						if (networkStream.CanRead)
+						{
+							byte[] readBuffer = new byte[1500];
+							int numberOfBytesRead = 0;
 
-                }
-            }
-            if (client != null)
-            {
-                client.Close();
-                Logger.Info("Connection closed");
-            }
+							// Incoming message may be larger than the buffer size. 
+							do
+							{
+								numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length);
 
-        }
-    }
+								//TODO use block copy to extend byte buffer
+								// Using string as dynamic byte buffer
+								myCompleteMessage.AppendFormat("{0}", Encoding.ASCII.GetString(readBuffer, 0, numberOfBytesRead));
+							}
+							while (networkStream.DataAvailable);
+
+							Logger.Info("Received : " + myCompleteMessage);
+						}
+						else
+						{
+							Logger.Info("Cannot read from this NetworkStream.");
+						}
+					}
+				}
+				catch (Exception e)
+				{
+					Logger.Info(e);
+				}
+			}
+		}
+	}
 }
