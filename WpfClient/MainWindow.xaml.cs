@@ -94,25 +94,21 @@ namespace WpfClient
 							Logger.Info("Cannot write from this NetworkStream.");
 						}
 
-						var myCompleteMessage = new StringBuilder();
+						var accumBuffer = new byte[] { };
 						// Check to see if this NetworkStream is readable. 
 						if (networkStream.CanRead)
 						{
 							byte[] readBuffer = new byte[1500];
-							int numberOfBytesRead = 0;
 
 							// Incoming message may be larger than the buffer size. 
 							do
 							{
-								numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length);
-
-								//TODO use block copy to extend byte buffer
-								// Using string as dynamic byte buffer
-								myCompleteMessage.AppendFormat("{0}", Encoding.ASCII.GetString(readBuffer, 0, numberOfBytesRead));
+								var numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length);
+								accumBuffer = Combine(accumBuffer, readBuffer, numberOfBytesRead);
 							}
 							while (networkStream.DataAvailable);
 
-							Logger.Info("Received : " + myCompleteMessage);
+							Logger.Info("Received : " + Encoding.ASCII.GetString(accumBuffer));
 						}
 						else
 						{
@@ -126,5 +122,22 @@ namespace WpfClient
 				}
 			}
 		}
+
+		public static byte[] Combine(byte[] first, byte[] second)
+		{
+			byte[] ret = new byte[first.Length + second.Length];
+			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
+			Buffer.BlockCopy(second, 0, ret, first.Length, second.Length);
+			return ret;
+		}
+
+		public static byte[] Combine(byte[] first, byte[] second, int secondLength)
+		{
+			byte[] ret = new byte[first.Length + secondLength];
+			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
+			Buffer.BlockCopy(second, 0, ret, first.Length, secondLength);
+			return ret;
+		}
+
 	}
 }

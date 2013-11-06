@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -113,24 +114,22 @@ namespace WpfServer
 					{
 						if (!ct.IsCancellationRequested)
 						{
-							var myCompleteMessage = new StringBuilder();
+							var accumBuffer = new byte[] { };
+
 							// Check to see if this NetworkStream is readable. 
 							if (networkStream.CanRead)
 							{
 								byte[] readBuffer = new byte[1500];
-								int numberOfBytesRead = 0;
 
 								// Incoming message may be larger than the buffer size. 
 								do
 								{
-									numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length);
-
-									// Using string as dynamic byte buffer
-									myCompleteMessage.AppendFormat("{0}", Encoding.ASCII.GetString(readBuffer, 0, numberOfBytesRead));
+									var numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length);
+									accumBuffer = Combine(accumBuffer, readBuffer, numberOfBytesRead);
 								}
 								while (networkStream.DataAvailable);
 
-								Logger.Info("Received : " + myCompleteMessage);
+								Logger.Info("Received : " + Encoding.ASCII.GetString(accumBuffer));
 							}
 							else
 							{
@@ -139,9 +138,8 @@ namespace WpfServer
 
 							if (networkStream.CanWrite)
 							{
-								var writeBuffer = Encoding.ASCII.GetBytes(myCompleteMessage.ToString());
-								await networkStream.WriteAsync(writeBuffer, 0, writeBuffer.Length);
-								Logger.Info("Sent : " + Encoding.ASCII.GetString(writeBuffer));
+								await networkStream.WriteAsync(accumBuffer, 0, accumBuffer.Length);
+								Logger.Info("Sent : " + Encoding.ASCII.GetString(accumBuffer));
 							}
 							else
 							{
@@ -150,54 +148,26 @@ namespace WpfServer
 						}
 					}
 				}
-				//Communicate(client, ct);
             }
         }
-		private async Task Communicate(TcpClient client, CancellationToken ct)
+
+		public static byte[] Combine(byte[] first, byte[] second)
 		{
-			using (var networkStream = client.GetStream())
-			{
-				if (!ct.IsCancellationRequested)
-				{
-					var myCompleteMessage = new StringBuilder();
-					// Check to see if this NetworkStream is readable. 
-					if (networkStream.CanRead)
-					{
-						byte[] readBuffer = new byte[1500];
-						int numberOfBytesRead = 0;
-
-						// Incoming message may be larger than the buffer size. 
-						do
-						{
-							numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length);
-
-							// Using string as dynamic byte buffer
-							myCompleteMessage.AppendFormat("{0}", Encoding.ASCII.GetString(readBuffer, 0, numberOfBytesRead));
-						}
-						while (networkStream.DataAvailable);
-
-						Logger.Info("Received : " + myCompleteMessage);
-					}
-					else
-					{
-						Logger.Info("Cannot read from this NetworkStream.");
-					}
-
-					if (networkStream.CanWrite)
-					{
-						var writeBuffer = Encoding.ASCII.GetBytes(myCompleteMessage.ToString());
-						await networkStream.WriteAsync(writeBuffer, 0, writeBuffer.Length);
-						Logger.Info("Sent : " + Encoding.ASCII.GetString(writeBuffer));						
-					}
-					else
-					{
-						Logger.Info("Cannot write from this NetworkStream.");
-					}
-				}
-			}
+			byte[] ret = new byte[first.Length + second.Length];
+			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
+			Buffer.BlockCopy(second, 0, ret, first.Length, second.Length);
+			return ret;
 		}
 
-        private void stopServer_Click(object sender, RoutedEventArgs e)
+		public static byte[] Combine(byte[] first, byte[] second, int secondLength)
+		{
+			byte[] ret = new byte[first.Length + secondLength];
+			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
+			Buffer.BlockCopy(second, 0, ret, first.Length, secondLength);
+			return ret;
+		}
+
+		private void stopServer_Click(object sender, RoutedEventArgs e)
         {
             _cts.Cancel();
 	        _cts.Dispose();
