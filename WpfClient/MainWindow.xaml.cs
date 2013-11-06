@@ -98,7 +98,7 @@ namespace WpfClient
 						// Check to see if this NetworkStream is readable. 
 						if (networkStream.CanRead)
 						{
-							byte[] readBuffer = new byte[1500];
+							var readBuffer = new byte[1500];
 
 							// Incoming message may be larger than the buffer size. 
 							do
@@ -125,7 +125,7 @@ namespace WpfClient
 
 		public static byte[] Combine(byte[] first, byte[] second)
 		{
-			byte[] ret = new byte[first.Length + second.Length];
+			var ret = new byte[first.Length + second.Length];
 			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
 			Buffer.BlockCopy(second, 0, ret, first.Length, second.Length);
 			return ret;
@@ -133,7 +133,7 @@ namespace WpfClient
 
 		public static byte[] Combine(byte[] first, byte[] second, int secondLength)
 		{
-			byte[] ret = new byte[first.Length + secondLength];
+			var ret = new byte[first.Length + secondLength];
 			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
 			Buffer.BlockCopy(second, 0, ret, first.Length, secondLength);
 			return ret;

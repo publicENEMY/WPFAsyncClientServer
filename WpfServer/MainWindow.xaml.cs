@@ -112,39 +112,37 @@ namespace WpfServer
 
 					using (var networkStream = client.GetStream())
 					{
-						if (!ct.IsCancellationRequested)
+						if (ct.IsCancellationRequested) continue;
+						var accumBuffer = new byte[] { };
+
+						// Check to see if this NetworkStream is readable. 
+						if (networkStream.CanRead)
 						{
-							var accumBuffer = new byte[] { };
+							var readBuffer = new byte[1500];
 
-							// Check to see if this NetworkStream is readable. 
-							if (networkStream.CanRead)
+							// Incoming message may be larger than the buffer size. 
+							do
 							{
-								byte[] readBuffer = new byte[1500];
+								var numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length, ct);
+								accumBuffer = Combine(accumBuffer, readBuffer, numberOfBytesRead);
+							}
+							while (networkStream.DataAvailable);
 
-								// Incoming message may be larger than the buffer size. 
-								do
-								{
-									var numberOfBytesRead = await networkStream.ReadAsync(readBuffer, 0, readBuffer.Length);
-									accumBuffer = Combine(accumBuffer, readBuffer, numberOfBytesRead);
-								}
-								while (networkStream.DataAvailable);
+							Logger.Info("Received : " + Encoding.ASCII.GetString(accumBuffer));
+						}
+						else
+						{
+							Logger.Info("Cannot read from this NetworkStream.");
+						}
 
-								Logger.Info("Received : " + Encoding.ASCII.GetString(accumBuffer));
-							}
-							else
-							{
-								Logger.Info("Cannot read from this NetworkStream.");
-							}
-
-							if (networkStream.CanWrite)
-							{
-								await networkStream.WriteAsync(accumBuffer, 0, accumBuffer.Length);
-								Logger.Info("Sent : " + Encoding.ASCII.GetString(accumBuffer));
-							}
-							else
-							{
-								Logger.Info("Cannot write from this NetworkStream.");
-							}
+						if (networkStream.CanWrite)
+						{
+							await networkStream.WriteAsync(accumBuffer, 0, accumBuffer.Length, ct);
+							Logger.Info("Sent : " + Encoding.ASCII.GetString(accumBuffer));
+						}
+						else
+						{
+							Logger.Info("Cannot write from this NetworkStream.");
 						}
 					}
 				}
@@ -153,7 +151,7 @@ namespace WpfServer
 
 		public static byte[] Combine(byte[] first, byte[] second)
 		{
-			byte[] ret = new byte[first.Length + second.Length];
+			var ret = new byte[first.Length + second.Length];
 			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
 			Buffer.BlockCopy(second, 0, ret, first.Length, second.Length);
 			return ret;
@@ -161,7 +159,7 @@ namespace WpfServer
 
 		public static byte[] Combine(byte[] first, byte[] second, int secondLength)
 		{
-			byte[] ret = new byte[first.Length + secondLength];
+			var ret = new byte[first.Length + secondLength];
 			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
 			Buffer.BlockCopy(second, 0, ret, first.Length, secondLength);
 			return ret;
